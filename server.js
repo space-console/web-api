@@ -54,6 +54,7 @@ wss.on("connection", (ws) => {
         ws.role = "host";
         ws.code = code;
         send(ws, { type: "created", code });
+        console.log(`[room] host created ${code}`);
         break;
       }
 
@@ -63,6 +64,7 @@ wss.on("connection", (ws) => {
         const room = rooms.get(code);
         if (!room) {
           send(ws, { type: "error", reason: "no-room" });
+          console.log(`[room] guest join ${code} -> NO ROOM (known: ${[...rooms.keys()].join(",") || "none"})`);
           return;
         }
         const id = "g" + nextGuestId++;
@@ -72,6 +74,7 @@ wss.on("connection", (ws) => {
         room.guests.set(id, ws);
         send(ws, { type: "joined", id, code });
         send(room.host, { type: "join", from: id, name: msg.name || null });
+        console.log(`[room] guest ${id} joined ${code}`);
         break;
       }
 
@@ -79,10 +82,13 @@ wss.on("connection", (ws) => {
       case "signal": {
         const room = rooms.get(ws.code);
         if (!room) return;
+        const kind = msg.data && msg.data.sdp ? `sdp:${msg.data.sdp.type}` : "ice";
         if (ws.role === "guest") {
           send(room.host, { type: "signal", from: ws.id, data: msg.data });
+          console.log(`[signal] guest ${ws.id} -> host (${kind})`);
         } else if (ws.role === "host") {
           send(room.guests.get(msg.to), { type: "signal", data: msg.data });
+          console.log(`[signal] host -> guest ${msg.to} (${kind})`);
         }
         break;
       }
