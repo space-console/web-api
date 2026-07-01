@@ -6,7 +6,8 @@
   "description": "Space Console signaling service — a thin WebRTC room relay (SDP/ICE) keyed by room code.",
   "scripts": {
     "start": "node server.js",
-    "dev": "node --watch server.js"
+    "dev": "node --watch server.js",
+    "serve:app": "STATIC_DIR=.. PORT=8000 node server.js"
   },
   "dependencies": {
     "ws": "^8.18.0"

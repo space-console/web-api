@@ -10,31 +10,51 @@ No game state, no auth, no database — just an in-memory map of rooms.
 
 ## Run locally
 
+**Signaling only** (apps served elsewhere):
+
 ```sh
 cd web-api
 npm install
-npm start        # ws://localhost:8080   (npm run dev for --watch reload)
+npm start        # signaling on ws://localhost:8080   (npm run dev = --watch)
 ```
 
-Then run the apps and point them at it:
+**Single-origin — app + signaling on ONE port** (recommended, and required for
+real iPhones): iOS Safari only lets page JS reach the exact host:port the page
+loaded from, so the signaling WebSocket must share the app's origin.
 
 ```sh
-cd game-launcher-web && npm run dev   # http://localhost:5173 (the TV)
-cd game-controller   && npm run dev   # http://localhost:5174 (the phone)
+STATIC_DIR=.. PORT=8000 npm start     # or: npm run serve:app
 ```
 
-Open the launcher, read the room code, enter it on the controller — the
-controller's d-pad now drives the launcher menu over the peer connection.
+`STATIC_DIR` is a directory to serve statically; `..` (the workspace root) lets
+the sibling repos resolve as `/game-launcher-web`, `/game-controller`,
+`/games/<id>`. Then open:
+
+- TV:    `http://<host>:8000/game-launcher-web/`
+- phone: `http://<host>:8000/game-controller/`
+
+Read the room code on the TV, enter it on the phone.
 
 ### Signaling URL
 
-Both clients default to `ws://<page-hostname>:8080`, so serving the apps from
-your laptop's LAN IP makes phones reach the relay automatically. Override per
-device with a query param:
+Clients default to **the page's own origin** (`ws(s)://<host:port>` of the page),
+so single-origin serving needs no config. When signaling runs on a different
+host/port, override per device:
 
 ```
-http://<laptop-ip>:5174/?signal=ws://<laptop-ip>:8080
+http://<host>:8000/game-controller/?signal=ws://<signal-host>:<port>
 ```
+
+### TURN (real phones / off-LAN)
+
+Direct P2P often fails on phones (iOS mDNS, strict NAT). Pass a TURN relay to the
+clients via query params (comma-separated URLs allowed; `&relay=1` forces relay):
+
+```
+?turn=turn:host:3478&turnuser=USER&turncred=PASS
+```
+
+STUN-only is the default. For production, self-host coturn.
 
 ## Protocol
 
