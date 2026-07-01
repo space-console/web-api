@@ -9,7 +9,10 @@
 import { WebSocketServer } from "ws";
 
 const PORT = process.env.PORT || 8080;
-const wss = new WebSocketServer({ port: PORT });
+// Bind IPv4 0.0.0.0 (all interfaces). The default binds IPv6-only on some
+// hosts, which LAN phones (typically IPv4) can't reach — they'd hang forever.
+const HOST = process.env.HOST || "0.0.0.0";
+const wss = new WebSocketServer({ port: PORT, host: HOST });
 
 /** code -> { host: ws, guests: Map<id, ws> } */
 const rooms = new Map();
