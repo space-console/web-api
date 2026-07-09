@@ -10,6 +10,7 @@ import http from "http";
 import fs from "fs";
 import path from "path";
 import { WebSocketServer } from "ws";
+import * as store from "./db.js";
 
 const PORT = process.env.PORT || 8080;
 // Bind IPv4 0.0.0.0 (all interfaces). The default binds IPv6-only on some
@@ -18,18 +19,24 @@ const HOST = process.env.HOST || "0.0.0.0";
 // When STATIC_DIR is set, also serve the app's static files on the SAME port, so
 // signaling is same-origin as the page. iOS Safari only lets page JS reach the
 // host:port the page loaded from, so cross-port signaling is unreachable from an
-// iPhone — single-origin fixes that. Unset = signaling only (original behavior).
+// iPhone — single-origin fixes that. Unset = signaling only (app served elsewhere).
 const STATIC_DIR = process.env.STATIC_DIR ? path.resolve(process.env.STATIC_DIR) : null;
 
-let wss;
-if (STATIC_DIR) {
-  const httpServer = http.createServer((req, res) => serveStatic(req, res));
-  wss = new WebSocketServer({ server: httpServer }); // WS shares the HTTP port
-  httpServer.listen(PORT, HOST, () =>
-    console.log(`[web-api] app + signaling on http://${HOST}:${PORT} (static: ${STATIC_DIR})`));
-} else {
-  wss = new WebSocketServer({ port: PORT, host: HOST });
-  console.log(`[web-api] signaling on ws://${HOST}:${PORT}`);
+// One HTTP server for everything: the /api/* stats endpoints, the WebSocket
+// upgrade (signaling), and — when STATIC_DIR is set — the app's static files,
+// all on a single same-origin port. iOS only lets page JS reach the origin
+// host:port, so keeping the stats API on the same port as the app matters too.
+const httpServer = http.createServer(handleHttp);
+const wss = new WebSocketServer({ server: httpServer }); // WS shares the HTTP port
+httpServer.listen(PORT, HOST, () =>
+  console.log(`[web-api] signaling + api${STATIC_DIR ? " + app" : ""} on http://${HOST}:${PORT}` +
+    (STATIC_DIR ? ` (static: ${STATIC_DIR})` : "")));
+
+function handleHttp(req, res) {
+  const url = (req.url || "/").split("?")[0];
+  if (url.startsWith("/api/")) return handleApi(req, res);
+  if (STATIC_DIR) return serveStatic(req, res);
+  res.writeHead(404); res.end("not found");
 }
 
 const MIME = {
@@ -52,6 +59,63 @@ function serveStatic(req, res) {
       "Cache-Control": "no-cache",
     });
     res.end(data);
+  });
+}
+
+// ---- Stats API ------------------------------------------------------------
+// A tiny JSON API over the SQLite store (db.js). Writes are POST beacons the
+// launcher fires as games are played; reads power leaderboards / popularity.
+// Same-origin with the app, so no CORS dance is needed for the console itself.
+function handleApi(req, res) {
+  const { pathname, searchParams } = new URL(req.url, "http://localhost");
+  const json = (code, body) => {
+    res.writeHead(code, { "Content-Type": "application/json", "Cache-Control": "no-cache" });
+    res.end(JSON.stringify(body));
+  };
+
+  if (req.method === "GET" && pathname === "/api/leaderboard") {
+    const game = searchParams.get("game");
+    if (!game) return json(400, { error: "game required" });
+    const limit = Number(searchParams.get("limit")) || 10;
+    return json(200, { game, scores: store.leaderboard(game, limit) });
+  }
+  if (req.method === "GET" && pathname === "/api/stats") {
+    return json(200, store.stats());
+  }
+
+  if (req.method === "POST") {
+    return readJson(req, (body) => {
+      try {
+        switch (pathname) {
+          case "/api/play":
+            store.recordPlay(body); return json(200, { ok: true });
+          case "/api/score":
+            store.recordScore(body); return json(200, { ok: true });
+          case "/api/result":
+            store.recordResult(body); return json(200, { ok: true });
+          default:
+            return json(404, { error: "no such endpoint" });
+        }
+      } catch (err) {
+        console.error("[api] write failed", err);
+        return json(500, { error: "write failed" });
+      }
+    });
+  }
+
+  json(404, { error: "no such endpoint" });
+}
+
+// Read a small JSON request body (capped so a bad client can't exhaust memory).
+function readJson(req, cb) {
+  let raw = "";
+  req.on("data", (chunk) => {
+    raw += chunk;
+    if (raw.length > 16 * 1024) req.destroy(); // 16 KB is plenty for a beacon
+  });
+  req.on("end", () => {
+    try { cb(raw ? JSON.parse(raw) : {}); }
+    catch { cb({}); }
   });
 }
 
