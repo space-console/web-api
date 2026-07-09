@@ -10,6 +10,7 @@
     "serve:app": "STATIC_DIR=.. PORT=8000 node server.js"
   },
   "dependencies": {
+    "better-sqlite3": "^12.11.1",
     "ws": "^8.18.0"
   },
   "engines": {

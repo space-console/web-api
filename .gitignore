@@ -1,3 +1,9 @@
 node_modules/
 *.log
 .DS_Store
+
+# Local SQLite stats store (created at runtime; never committed)
+data/
+*.db
+*.db-wal
+*.db-shm

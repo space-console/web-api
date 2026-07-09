@@ -6,7 +6,9 @@ find each other by a short **room code** and exchange the WebRTC handshake
 (SDP + ICE). Once their DataChannel opens, gameplay **intents flow phone→TV
 peer-to-peer** and never pass through this service.
 
-No game state, no auth, no database — just an in-memory map of rooms.
+Rooms are in-memory and ephemeral. Alongside signaling it also exposes a small
+**stats API** backed by a local **SQLite** file (`db.js`) — high scores, which
+games get played, and 2-player results. See [Stats API](#stats-api).
 
 ## Run locally
 
@@ -69,6 +71,25 @@ JSON frames over one WebSocket per client.
 | → TV | `{type:"join", from, name}` / `{type:"leave", from}` | A controller joined / left. |
 | ↔ | `{type:"signal", to?, data}` | Relay one SDP/ICE blob to the other peer. |
 | → phone | `{type:"host-gone"}` | The TV closed the room. |
+
+## Stats API
+
+A tiny JSON API on the **same port** as signaling/app, backed by SQLite
+(`better-sqlite3`). The launcher (the one device that sees every game and player)
+POSTs fire-and-forget beacons as games are played; anything can read the
+aggregates. The DB file defaults to `web-api/data/spaceconsole.db` — override with
+`DB_PATH=/path/to.db`. The `data/` dir and `*.db` files are git-ignored.
+
+| Method | Path | Body / query | Purpose |
+| --- | --- | --- | --- |
+| POST | `/api/play` | `{gameId, roomCode, playerCount}` | Log a launch (popularity, solo-vs-group). |
+| POST | `/api/score` | `{gameId, playerName, score, roomCode}` | Record a leaderboard score. |
+| POST | `/api/result` | `{gameId, roomCode, outcome, winnerSlot, winnerName, players}` | Record a 2-player result (`outcome`: `win`\|`draw`). |
+| GET | `/api/leaderboard?game=<id>&limit=10` | — | Top scores for one game. |
+| GET | `/api/stats` | — | Totals + most-played games. |
+
+Schema (`db.js`): `plays`, `scores`, `results`. Maps cleanly to Postgres if the
+single-file DB is ever outgrown on the deploy box.
 
 ## Documentation
 
