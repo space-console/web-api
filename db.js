@@ -91,7 +91,8 @@ const stmt = {
 /** Log that a game was launched (popularity + solo-vs-multiplayer signal). */
 export function recordPlay({ gameId, roomCode = null, playerCount = 1 }) {
   stmt.insertPlay.run({
-    gameId, roomCode,
+    gameId: text(gameId, 48) || "unknown",
+    roomCode: text(roomCode, 8),
     playerCount: clampInt(playerCount, 1, 8),
     startedAt: Date.now(),
   });
@@ -100,10 +101,10 @@ export function recordPlay({ gameId, roomCode = null, playerCount = 1 }) {
 /** Record a final score for a leaderboard game. */
 export function recordScore({ gameId, playerName = "Guest", score, roomCode = null }) {
   stmt.insertScore.run({
-    gameId,
-    playerName: String(playerName).slice(0, 24) || "Guest",
+    gameId: text(gameId, 48) || "unknown",
+    playerName: text(playerName, 24) || "Guest",
     score: clampInt(score, -1e12, 1e12),
-    roomCode,
+    roomCode: text(roomCode, 8),
     createdAt: Date.now(),
   });
 }
@@ -111,11 +112,16 @@ export function recordScore({ gameId, playerName = "Guest", score, roomCode = nu
 /** Record the outcome of a finished 2-player game. */
 export function recordResult({ gameId, roomCode = null, outcome, winnerName = null, winnerSlot = null, players = [] }) {
   stmt.insertResult.run({
-    gameId, roomCode,
+    gameId: text(gameId, 48) || "unknown",
+    roomCode: text(roomCode, 8),
     outcome: outcome === "draw" ? "draw" : "win",
-    winnerName: winnerName ? String(winnerName).slice(0, 24) : null,
+    winnerName: text(winnerName, 24),
     winnerSlot: winnerSlot != null ? clampInt(winnerSlot, 1, 8) : null,
-    players: JSON.stringify(Array.isArray(players) ? players : []),
+    // Cap the roster too — it arrives as JSON from an unauthenticated beacon.
+    players: JSON.stringify(
+      (Array.isArray(players) ? players : []).slice(0, 8)
+        .map((p) => ({ slot: clampInt(p && p.slot, 1, 8), name: text(p && p.name, 24) }))
+    ),
     createdAt: Date.now(),
   });
 }
@@ -136,6 +142,15 @@ export function stats(limit = 30) {
 function clampInt(v, lo, hi) {
   const n = Math.round(Number(v) || 0);
   return Math.max(lo, Math.min(hi, n));
+}
+
+// Coerce an untrusted beacon field to a short string (or null). Keeps a bad or
+// hostile client from writing megabyte rows, and keeps non-string junk (objects,
+// arrays) from reaching better-sqlite3, which refuses to bind them.
+function text(v, max) {
+  if (v == null) return null;
+  const s = String(v).slice(0, max).trim();
+  return s || null;
 }
 
 export default db;
