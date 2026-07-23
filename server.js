@@ -44,6 +44,13 @@ const MIME = {
   ".css": "text/css", ".json": "application/json", ".svg": "image/svg+xml",
   ".png": "image/png", ".jpg": "image/jpeg", ".ico": "image/x-icon",
   ".webmanifest": "application/manifest+json", ".woff2": "font/woff2",
+  // 3D games (Babylon/Three): .wasm is MIME-strict — browsers refuse to compile
+  // a WebAssembly module served as anything but application/wasm, which silently
+  // breaks Havok physics (blank scene, no error a player sees). glTF models
+  // (.glb/.gltf) and their .bin buffers round it out.
+  ".wasm": "application/wasm", ".glb": "model/gltf-binary",
+  ".gltf": "model/gltf+json", ".bin": "application/octet-stream",
+  ".obj": "text/plain", ".mtl": "text/plain", ".txt": "text/plain",
 };
 
 // Minimal static file server rooted at STATIC_DIR (dev/self-host convenience).
