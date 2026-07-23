@@ -62,6 +62,56 @@ function serveStatic(req, res) {
   });
 }
 
+// ---- ICE / TURN config ----------------------------------------------------
+// Clients ask the server which STUN/TURN servers to use, rather than carrying
+// credentials in URL params. These repos are public, so TURN credentials live
+// ONLY in the deploy's environment variables and are handed out at runtime.
+//
+//   TURN_URLS        comma-separated, e.g. "turn:x.metered.live:80,turns:x:443"
+//   TURN_USERNAME    TURN credential pair
+//   TURN_CREDENTIAL
+//
+// With TURN unset the console still works whenever the phone and the TV can
+// reach each other directly (same Wi-Fi) — TURN is the fallback for the rest.
+function iceServers() {
+  const stun = (process.env.STUN_URLS || "stun:stun.l.google.com:19302")
+    .split(",").map((s) => s.trim()).filter(Boolean);
+  const servers = [{ urls: stun }];
+  const turn = (process.env.TURN_URLS || "").split(",").map((s) => s.trim()).filter(Boolean);
+  if (turn.length) {
+    servers.push({
+      urls: turn,
+      username: process.env.TURN_USERNAME || "",
+      credential: process.env.TURN_CREDENTIAL || "",
+    });
+  }
+  return servers;
+}
+
+// ---- Write rate limit -----------------------------------------------------
+// The stats POSTs are unauthenticated (they're fire-and-forget beacons from a
+// browser, so there's no secret to hold). Public deploys therefore need a lid,
+// or anyone with curl can stuff the leaderboards. A per-IP-per-minute cap is
+// plenty: real play produces a handful of writes per game.
+const WRITE_LIMIT = Number(process.env.WRITE_LIMIT || 30);
+const writeHits = new Map(); // ip -> { count, resetAt }
+
+function rateLimited(req) {
+  // Render/most PaaS put the real client IP in X-Forwarded-For.
+  const ip = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim()
+    || req.socket.remoteAddress || "unknown";
+  const now = Date.now();
+  if (writeHits.size > 5000) {
+    for (const [k, v] of writeHits) if (now > v.resetAt) writeHits.delete(k);
+  }
+  let entry = writeHits.get(ip);
+  if (!entry || now > entry.resetAt) {
+    entry = { count: 0, resetAt: now + 60_000 };
+    writeHits.set(ip, entry);
+  }
+  return ++entry.count > WRITE_LIMIT;
+}
+
 // ---- Stats API ------------------------------------------------------------
 // A tiny JSON API over the SQLite store (db.js). Writes are POST beacons the
 // launcher fires as games are played; reads power leaderboards / popularity.
@@ -73,6 +123,13 @@ function handleApi(req, res) {
     res.end(JSON.stringify(body));
   };
 
+  // Health check — Render pings this to know the instance is up.
+  if (req.method === "GET" && pathname === "/api/health") {
+    return json(200, { ok: true, rooms: rooms.size });
+  }
+  if (req.method === "GET" && pathname === "/api/ice") {
+    return json(200, { iceServers: iceServers() });
+  }
   if (req.method === "GET" && pathname === "/api/leaderboard") {
     const game = searchParams.get("game");
     if (!game) return json(400, { error: "game required" });
@@ -84,6 +141,7 @@ function handleApi(req, res) {
   }
 
   if (req.method === "POST") {
+    if (rateLimited(req)) return json(429, { error: "slow down" });
     return readJson(req, (body) => {
       try {
         switch (pathname) {

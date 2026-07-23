@@ -1,0 +1,40 @@
+# Render blueprint — the whole Space Console as ONE service.
+#
+# web-api serves the launcher, the controller, the games, the WebRTC signaling
+# socket and the stats API on a single origin, because iOS Safari only lets page
+# JS reach the host:port the page loaded from. Splitting the frontend onto a
+# static host is what breaks iPhones, so don't.
+#
+# The build clones each sibling repo's published `gh-pages` branch into ./public
+# (see scripts/build-static.mjs), then STATIC_DIR points the server at it.
+#
+# Free plan notes: the instance sleeps after ~15 min idle (~50 s cold start) and
+# has NO persistent disk, so the SQLite stats file resets on every deploy/sleep.
+# Signaling and gameplay are unaffected — only the leaderboard history is. Moving
+# to Starter and attaching a disk at /data (with DB_PATH=/data/spaceconsole.db)
+# fixes both.
+services:
+  - type: web
+    name: space-console
+    runtime: node
+    plan: free
+    region: frankfurt          # nearest to the players; change if you're elsewhere
+    branch: main
+    buildCommand: npm install && npm run build:static
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: STATIC_DIR
+        value: ./public
+      # TURN relays phone->TV when the two can't reach each other directly (i.e.
+      # any time they're not on the same Wi-Fi). Credentials are NOT committed —
+      # set them in the Render dashboard. Without them, same-network play works
+      # and cross-network play does not.
+      - key: TURN_URLS
+        sync: false
+      - key: TURN_USERNAME
+        sync: false
+      - key: TURN_CREDENTIAL
+        sync: false
