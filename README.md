@@ -118,9 +118,23 @@ The build clones each sibling repo's published `gh-pages` branch into `./public`
 and points the server at it:
 
 ```sh
-npm run build:static     # git-clone launcher + controller + games#gh-pages -> ./public
+npm run build:static     # git-clone landing + launcher + controller + games#gh-pages -> ./public
 npm run serve:dist       # STATIC_DIR=./public PORT=8000 node server.js
 ```
+
+The resulting tree, and what each path serves:
+
+| Path | Serves |
+| --- | --- |
+| `/` | redirect to `/landing/` |
+| `/landing/` | the marketing site — what a first-time visitor should see |
+| `/game-launcher-web/` | the TV app (the landing page's primary CTA) |
+| `/game-controller/` | the phone pad (what the join QR points at) |
+| `/games/<id>/` | the games |
+
+`build:static` fails loudly if any repo's `gh-pages` root has no `index.html` —
+that happens when a repo has only ever deployed a PR preview, and it would
+otherwise ship an empty folder that 404s.
 
 Set `TURN_URLS` / `TURN_USERNAME` / `TURN_CREDENTIAL` (and optionally `STUN_URLS`)
 in the Render dashboard — they are not committed. Render's health check hits
